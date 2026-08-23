@@ -54,9 +54,8 @@ src/generated
 # typescript
 *.tsbuildinfo
 
-# Next.js 가 자동 생성하는 에이전트 규칙 파일 (이 프로젝트에서는 쓰지 않음)
-AGENTS.md
-CLAUDE.md
+# 에이전트 규칙 파일은 직접 작성해 커밋한다 (AGENTS.md = 라우터, CLAUDE.md = 불러오기)
+# next dev 가 관리 블록을 덧붙이지만 본문은 보존된다
 
 # 작업 산출물
 .playwright-mcp/
