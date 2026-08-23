@@ -232,3 +232,136 @@ DB·시드가 필요 없고 파일만 읽는다. 1초 안에 끝나므로 Lint �
 
 `docs/harness/02-verification.md` 를 쓸 때, 위 A1~A4 와 "판단해서 정한 것" 3개가
 그대로 초안 입력이 된다. 검사 항목을 확정하는 것 자체가 검증 정책 결정이다.
+
+---
+
+## 8. 보호 경로 검사 — 사람 소유 영역 방어
+
+`npm run verify` 의 **첫 단계**로 Protect 를 넣었다. Git 변경 내역에 사람 소유 경로가 들어 있으면
+나머지 단계를 돌리기 전에 멈춘다.
+
+```text
+Protect → Prepare → Types → Lint → Arch → Test → Domain Verify → Build
+```
+
+### 순서 — 원본을 먼저 고치고 스크립트를 만들었다
+
+`00-ssot.md §5` 의 대상 표에서 검증 스크립트 칸이 `추후 생성` 이었다. 경로가 정해지지 않은 상태에서는
+무엇을 보호할지 스크립트가 알 수 없다.
+
+1. `00-ssot.md §5` 의 대상 표를 먼저 고쳤다.
+
+   ```diff
+   -| 검증 스크립트 | 추후 생성 |
+   +| 검증 스크립트 | `scripts/verify/` |
+   ```
+
+2. 정해진 그 경로에 `scripts/verify/check-protected.ts` 를 만들었다.
+
+`00-ssot.md §0.3` 이 "기준이 바뀌면 원본을 먼저 수정한다" 고 정한 그대로다. 반대 순서로 했다면
+스크립트가 자기 위치를 스스로 정하는 셈이 되고, 그건 §5 상 사람의 권한이다.
+
+`§5` 는 사람 소유 영역이므로 이 변경 자체도 사람이 했다.
+
+### 만든 것 — `scripts/verify/check-protected.ts`
+
+**경로 목록을 스크립트에 적지 않는다.** 실행할 때마다 `00-ssot.md §5` 의 두 표를 파싱해 도출한다.
+경로를 코드에 복사하면 SSOT 가 두 벌이 되고, 어느 쪽이 맞는지 알 수 없어진다.
+
+| 표 | 쓰는 방법 |
+|---|---|
+| `\| 영역 \| AI \| 사람 \|` | AI 칸이 `수정`·`작성` 이 아니면(읽기·실행) 그 영역은 사람 소유 |
+| `\| 영역 \| 대상 \|` | 그 영역이 가리키는 실제 경로 (백틱 안의 값) |
+
+현재 도출되는 보호 경로는 다음과 같다.
+
+| 영역 | 경로 |
+|---|---|
+| 요구사항·아키텍처 | `docs/01-requirements.md` · `docs/06-architecture.md` |
+| 하네스 핵심 규칙 | `docs/harness/` · `AGENTS.md` · `CLAUDE.md` |
+| 검증 스크립트 | `scripts/verify/` |
+
+`Issue별 테스트` 는 대상이 `추후 정할 Issue별 테스트 경로` 라 백틱 경로가 없다. 경로 미정으로 보고
+검사에서 제외한다 — AI 가 작성·수정하는 영역이므로 애초에 보호 대상도 아니다.
+
+### 사람이 정한 것 2가지
+
+원본에 근거가 없어 이번에 판단을 받았다.
+
+1. **비교 기준 = 브랜치 전체 + 작업트리**
+
+   ```text
+   VERIFY_BASE → origin/${GITHUB_BASE_REF} (CI PR) → origin/main → main
+   ```
+
+   찾은 ref 와 `HEAD` 의 `merge-base` 를 잡고, 그 이후의 커밋 + 스테이지 + 작업트리 + untracked 를 본다.
+   로컬과 CI 가 같은 판정을 낸다. `--no-renames` 로 비교하므로 이름만 바꿔 빼내는 것도 잡힌다.
+
+2. **승인은 환경변수로** — `00-ssot.md §5` 의 "사람의 명시적인 수정 요청은 해당 변경에 대한 승인으로 본다"
+
+   ```bash
+   ALLOW_PROTECTED="docs/harness/00-ssot.md" npm run verify
+   ALLOW_PROTECTED=all npm run verify
+   ```
+
+   **CI 워크플로에는 넣지 않았다.** CI 는 항상 엄격하게 막는다.
+
+### 함께 바꾼 것
+
+```json
+"verify:protected": "tsx scripts/verify/check-protected.ts",
+"verify": "npm run verify:protected && export DATABASE_URL=... && npm run verify:prepare && ..."
+```
+
+- 맨 앞에 둔 이유: DB 도 빌드도 필요 없고 git 과 파일만 읽는다. 1초 안에 끝나므로 Prepare 가
+  검증 DB 를 지우기 전에 판정이 끝난다
+- `.github/workflows/verify.yml` — `actions/checkout` 에 `fetch-depth: 0` 추가.
+  기본값(얕은 클론)이면 `origin/main` 이 없어 `merge-base` 를 구하지 못한다
+
+### 검증 결과
+
+| 확인한 것 | 결과 |
+|---|---|
+| `npm run verify` (승인 없음, 현재 브랜치) | **exit 1** — Prepare 도달 전 중단, 검증 DB 를 건드리지 않음 |
+| `ALLOW_PROTECTED=all npm run verify` | **exit 0** — 전 단계 통과 (테스트 19개 · 빌드 15 routes) |
+| `§5` 에서 `하네스 핵심 규칙` 의 AI 칸을 `수정` 으로 바꿈 | 그 영역이 보호 목록에서 빠짐 — 하드코딩이 아님을 확인 |
+| 두 표의 영역 이름을 어긋나게 함 | `NEEDS_HUMAN — SSOT ↔ SSOT 충돌` 후 중단 (`§4`) |
+| 표 헤더를 깨뜨림 | 조용히 통과하지 않고 exit 1 |
+| 비교 기준을 못 찾는 경우 | exit 1 + `fetch-depth: 0` · `VERIFY_BASE` 안내 |
+| `tsc --noEmit` · `eslint` | clean |
+
+검사 불능은 전부 실패로 처리한다. 보호 경로 검사가 조용히 통과하면 검사가 없는 것보다 나쁘다.
+
+### 주의 — 스스로를 잡는다
+
+`scripts/verify/` 가 보호 경로이므로 이 스크립트는 자기 자신의 변경을 위반으로 잡는다.
+
+```text
+❌ 보호 경로 변경 2건 — 사람 승인이 필요합니다
+      ↳ docs/harness/00-ssot.md              하네스 핵심 규칙 (docs/harness/)
+      ↳ scripts/verify/check-protected.ts    검증 스크립트 (scripts/verify/)
+```
+
+의도한 동작이다. 검증 정책 변경은 `§5` 상 사람 승인 사항이므로, 앞으로 이 파일을 고칠 때마다
+`ALLOW_PROTECTED` 가 필요하다.
+
+### 현재 상태
+
+- 브랜치: `docs/harness-ssot`
+- 변경사항: **미커밋**
+
+```text
+ M .github/workflows/verify.yml   fetch-depth: 0
+ M docs/harness/00-ssot.md        §5 검증 스크립트 → scripts/verify/
+ M package.json                   verify:protected 추가 · verify 맨 앞에 배치
+ M handsover/03-verify.md         이 절(§8)
+ ?? scripts/verify/               check-protected.ts (신규)
+```
+
+### §3 남은 작업에 미치는 영향
+
+`docs/harness/02-verification.md` 를 쓸 때 다음 세 가지가 그대로 초안 입력이 된다.
+
+1. 보호 경로를 `§5` 에서 도출한다는 규칙 자체
+2. 비교 기준(브랜치 전체 + 작업트리)과 승인 방식(`ALLOW_PROTECTED`)
+3. `Issue별 테스트` 경로 — `§5` 에서 아직 `추후 정할` 상태다. 정해지면 보호 여부도 함께 정해야 한다
