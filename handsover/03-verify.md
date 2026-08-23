@@ -77,6 +77,7 @@ DB 삭제 → migrate deploy → generate → seed
   - Prepare ✅
   - TypeScript ✅
   - Lint ✅
+  - Architecture Check ✅ (§7)
   - Test 19개 ✅
   - Domain Verify ✅
   - Build 15 routes ✅
@@ -159,3 +160,75 @@ npm run verify
   로컬(macOS)에서는 검증할 수 없다.
 - 현재 브랜치는 `docs/harness-ssot` 이고 push 트리거는 `main` 뿐이므로, **PR 을 열어야 처음 돌아간다.**
   `workflow_dispatch` 는 워크플로가 기본 브랜치에 있어야 UI 에 뜬다.
+
+---
+
+## 7. 아키텍처 검사 — 재고 변경 경로 강제
+
+`docs/06-architecture.md` 가 "코드는 반드시 이 경로를 거쳐야 한다"고 정한 규칙 중
+**정적으로 자동 검사할 수 있는 것**을 추려, `npm run verify` 의 Lint 다음 단계로 넣었다.
+
+### 조사 결과 — 06 의 경로 규칙을 세 갈래로 나눔
+
+| 갈래 | 항목 | 처리 |
+|---|---|---|
+| 정적 검사 가능 | Lot·Movement 직접 쓰기 금지 · `$transaction` 밖 호출 금지 · 클라이언트 컴포넌트의 Prisma import 금지 | 앞의 셋을 이번에 구현 |
+| 스키마·설정 스냅샷 | `Lot` unique·index · `Movement @@index([reversalOfId])` · WAL 모드 | **미구현 — 아래 "미해결" 참고** |
+| 런타임·테스트 몫 | 한 트랜잭션 안 N회 호출 · 한 거점 안 배분 · `planAllocation` 순수성 · 누적 정산 · 중복 취소 금지 | `06 §9` 표의 기존 테스트가 담당 |
+
+### 만든 것 — `scripts/check-architecture.ts`
+
+| ID | 규칙 | 근거 |
+|---|---|---|
+| A1 | `Lot` 쓰기는 `src/lib/stock.ts` 안에서만 | `06 §2` · `§4.1` |
+| A2 | `Movement` 쓰기는 `src/lib/stock.ts` 안에서만 | `06 §4.1` — 이력은 재고 변경과 같은 트랜잭션 |
+| A3 | `applyMovement()`·`reverseMovement()` 첫 인자는 트랜잭션 클라이언트 | `06 §4.1` — 반드시 `$transaction()` 안에서 |
+| A4 | raw SQL 로 `Lot`·`Movement` 를 쓰지 않는다 | `06 §7.5` — raw SQL 은 조회에만 |
+
+**A1만으로는 부족하다.** `movement.create()` 직접 호출이나
+`$executeRawUnsafe('UPDATE Lot ...')` 로 우회로가 그대로 남기 때문에,
+"유일한 통로"를 실제로 유일하게 만들려면 네 개가 한 묶음이어야 한다.
+
+DB·시드가 필요 없고 파일만 읽는다. 1초 안에 끝나므로 Lint 다음 자리가 맞다.
+
+```json
+"check:arch": "tsx scripts/check-architecture.ts",
+"verify": "... && npm run lint && npm run check:arch && npm test && ..."
+```
+
+### 검증 결과
+
+- `npm run verify` 전체 **PASS**. 아키텍처 검사는 57개 파일에서 **위반 0건**
+- 가짜 위반을 심어 역방향도 확인 — 네 규칙 모두 `파일:줄` 과 함께 잡아내고 `exit 1`
+- 주석 안의 `db.lot.update()` 는 걸리지 않는다 (주석 제거 후 검사)
+
+### 판단해서 정한 것 — 원본에 없음, 확인 필요
+
+원본에 근거가 없어 이번 세션에서 정했다. `00-ssot.md §4` 상 원본에 없으면 정해지지 않은 것이므로,
+확정하려면 승인이 필요하다.
+
+1. **검사 범위 = `src/**` + `prisma/seed.ts`**
+   - 제외: `src/generated/`(Prisma 생성 코드 — JSDoc 예제가 전부 걸린다) ·
+     `tests/`(픽스처 준비·정리) · `scripts/`(검증 하네스 자체)
+   - 시드를 넣은 이유: `prisma/seed.ts` 가 이미 모든 수량 변경을 `applyMovement` 로 통과시킨다
+2. **인자 없는 `deleteMany()` 는 예외** — 시드의 전체 초기화는 재고 변경이 아니라 판 갈아엎기로 봤다.
+   `deleteMany({ where: ... })` 같은 부분 삭제는 그대로 위반으로 잡힌다
+3. **A3이 `tx` 와 `t` 둘 다 허용** — `prisma/seed.ts` 가 트랜잭션 클라이언트를 `t` 로 받는다.
+   이름을 `tx` 하나로 통일하면 검사가 더 단단해진다
+
+### 미해결 — 06 이 요구하는데 코드가 안 따르는 것 2건
+
+조사 중 발견했고, 이번 범위 밖이라 **손대지 않았다.** 둘 다 자동 검사가 쉽다.
+
+| 항목 | 원본 | 현재 |
+|---|---|---|
+| `Movement @@index([reversalOfId])` | `06 §4.4` | `prisma/schema.prisma` 에 없음 |
+| SQLite WAL 모드 | `06 §8` — `PRAGMA journal_mode = WAL` | `src/lib/db.ts` 에 주석만 있고 설정 코드 없음. `dev.db` 헤더 18~19바이트가 `01 01`(rollback journal) — WAL이면 `02 02` |
+
+아키텍처는 사람 소유 영역이고(`00-ssot.md §5`), `06 §4.4` 는 "PoC에서는 애플리케이션 레벨 검증으로
+충분"이라고도 적어두었다. 인덱스를 추가할지·WAL을 실제로 켤지는 판단을 받아야 한다.
+
+### §3 남은 작업에 미치는 영향
+
+`docs/harness/02-verification.md` 를 쓸 때, 위 A1~A4 와 "판단해서 정한 것" 3개가
+그대로 초안 입력이 된다. 검사 항목을 확정하는 것 자체가 검증 정책 결정이다.
