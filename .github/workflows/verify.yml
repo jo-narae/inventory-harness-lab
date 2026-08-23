@@ -19,7 +19,10 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # 보호 경로 검사(Protect)가 base 브랜치와 merge-base 를 구한다. 얕은 클론이면 기준을 찾지 못한다.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -28,7 +31,7 @@ jobs:
 
       - run: npm ci
 
-      # Prepare → Types → Lint → Test → Domain Verify → Build
+      # Protect → Prepare → Types → Lint → Arch → Test → Domain Verify → Build
       # DATABASE_URL 은 verify 스크립트가 검증용 DB로 직접 지정한다.
       - run: npm run verify
         env:

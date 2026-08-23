@@ -94,7 +94,7 @@ AI는 충돌이 확인되면 위 표가 정한 처리 외에 자신의 판단으
 | Issue별 테스트 | 추후 정할 Issue별 테스트 경로 |
 | 요구사항·아키텍처 | `docs/01-requirements.md`, `docs/06-architecture.md` |
 | 하네스 핵심 규칙 | `docs/harness/`, `AGENTS.md`, `CLAUDE.md` |
-| 검증 스크립트 | 추후 생성 |
+| 검증 스크립트 | `scripts/verify/` |
 
 AI는 사람의 변경 권한에 속한 영역을 직접 확정하지 않는다.
 
