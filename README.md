@@ -18,7 +18,7 @@
 ## 실행
 
 ```bash
-git clone https://github.com/jo-narae/inventory-poc.git && cd inventory-poc
+git clone https://github.com/jo-narae/inventory-harness-lab.git && cd inventory-harness-lab
 npm install
 cp .env.example .env   # SESSION_SECRET 을 아무 긴 문자열로 바꾼다
 npm run dev            # DB가 없으면 자동으로 만들고 목업 데이터까지 넣는다
