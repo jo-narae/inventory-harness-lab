@@ -19,7 +19,7 @@
 | 재고 도메인 | `docs/01-requirements.md` | 확정 |
 | 아키텍처 | `docs/06-architecture.md` | 확정 |
 | 개별 유지보수 작업 | GitHub Issue | 확정 |
-| 검증 규칙 | `docs/harness/02-verification.md` | 추후 생성 |
+| 검증 규칙 | `docs/harness/02-verification.md` | 확정 |
 | 구현·검증 루프 | `docs/harness/03-loop.md` | 추후 생성 |
 
 ## 2. 책임 경계
@@ -36,6 +36,16 @@
 
 검증을 언제 어떻게 실행할지는 다루지 않는다.
 
+### 검증 규칙
+
+`docs/harness/02-verification.md`는 무엇을 통과해야 변경이 끝난 것인지 정한다.
+
+기계 검증의 단계 구성과 순서, 게이트와 경고의 구분, Issue 단위 검증의 형식, 멈추는 지점을 정한다.
+
+검증 항목의 내용 자체는 정하지 않는다. 도메인 수용 기준은 `01`, 불변식은 `06`, 이번 작업의 종료 조건은 Issue가 정한다.
+
+검증을 어떤 순서로 몇 번 반복할지도 다루지 않는다.
+
 ### 개별 작업
 
 GitHub Issue는 이번에 무엇을 변경하고, 무엇을 만족하면 끝나는지를 정한다.
@@ -46,7 +56,6 @@ GitHub Issue는 이번에 무엇을 변경하고, 무엇을 만족하면 끝나�
 
 | 영역 | 예정 위치 | 현재 상태 |
 |---|---|---|
-| 검증 규칙 | `docs/harness/02-verification.md` | 요구사항·아키텍처·계획 문서에 분산되어 있음 |
 | 구현·검증 루프 | `docs/harness/03-loop.md` | 명령어만 있고 반복 절차는 정의되지 않음 |
 
 ## 4. 충돌 정책
@@ -91,7 +100,7 @@ AI는 충돌이 확인되면 위 표가 정한 처리 외에 자신의 판단으
 | 영역 | 대상 |
 |---|---|
 | 애플리케이션 코드 | `src/`, `prisma/` |
-| Issue별 테스트 | 추후 정할 Issue별 테스트 경로 |
+| Issue별 테스트 | `tests/issues/` |
 | 요구사항·아키텍처 | `docs/01-requirements.md`, `docs/06-architecture.md` |
 | 하네스 핵심 규칙 | `docs/harness/`, `AGENTS.md`, `CLAUDE.md` |
 | 검증 스크립트 | `scripts/verify/` |
