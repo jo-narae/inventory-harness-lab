@@ -1,0 +1,43 @@
+# 기계 검증 — 로컬의 `npm run verify` 와 같은 것을 그대로 돌린다.
+# CI 전용 단계를 여기에 따로 적지 않는다. 순서가 바뀌면 package.json 한 곳만 고친다.
+name: verify
+
+on:
+  push:
+    # 모든 브랜치. 태그 푸시는 제외한다 — 검증 대상은 브랜치의 코드다.
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# 같은 브랜치에 새 커밋이 오면 진행 중이던 실행은 취소한다.
+# PR 은 head_ref, 푸시는 ref_name 이 같은 브랜치 이름이므로 한 그룹에 묶인다.
+# PR 이 열린 브랜치에 푸시할 때 push 실행과 pull_request 실행이 겹치는 것을 여기서 정리한다.
+concurrency:
+  group: verify-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 보호 경로 검사(Protect)가 base 브랜치와 merge-base 를 구한다. 얕은 클론이면 기준을 찾지 못한다.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Protect → Prepare → Types → Lint → Arch → Test → Domain Verify → Build
+      # DATABASE_URL 은 verify 스크립트가 검증용 DB로 직접 지정한다.
+      - run: npm run verify
+        env:
+          # 실제 비밀값이 아니다. .env.example 이 요구하는 변수를 CI 에서도 채워둘 뿐이다.
+          # 검증 경로는 로그인을 거치지 않으므로 값 자체는 쓰이지 않는다.
+          SESSION_SECRET: ci-placeholder-not-a-real-secret

@@ -9,9 +9,10 @@ const db = new PrismaClient({
   adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? 'file:./prisma/dev.db' }),
 })
 
+let bad = 0
+
 async function main() {
   const rows = await getStockRows()
-  let bad = 0
 
   for (const r of rows) {
     if (!r.headline) continue
@@ -28,4 +29,12 @@ async function main() {
   }
   console.log(bad === 0 ? '\n전부 단일 로트와 일치 — 버그 해결' : `\n불일치 ${bad}건`)
 }
-main().finally(() => db.$disconnect())
+main()
+  .catch((e) => {
+    console.error(e)
+    bad++
+  })
+  .finally(async () => {
+    await db.$disconnect()
+    if (bad > 0) process.exitCode = 1
+  })
