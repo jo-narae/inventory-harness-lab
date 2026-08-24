@@ -162,20 +162,53 @@ const changed = [...new Set([...tracked, ...untracked])].filter(Boolean).sort()
 const covers = (rule: string, file: string) =>
   rule.endsWith('/') ? file.startsWith(rule) : file === rule || file.startsWith(rule + '/')
 
-const raw = (process.env.ALLOW_PROTECTED ?? '').trim()
-const allowAll = raw.toLowerCase() === 'all'
-const allowed = allowAll ? [] : raw.split(/[\s,]+/).filter(Boolean)
+/**
+ * 승인은 두 곳에서 온다. 둘 다 사람이 직접 적은 것이고, 규칙은 같다.
+ *
+ *   1. 환경변수 ALLOW_PROTECTED — 손에 잡히는 로컬용. 이력에 남지 않는다.
+ *   2. 커밋 트레일러 Approved-Protected — base..HEAD 커밋 메시지에서 읽는다.
+ *      승인이 커밋에 박히므로 로컬과 CI 가 같은 근거를 본다. 리뷰에서도 보인다.
+ *
+ *      Approved-Protected: docs/harness/00-ssot.md scripts/verify/check-protected.ts
+ *
+ * 승인 값은 파일 경로, 디렉터리, SSOT 에 적힌 경로 규칙, 또는 all 이다.
+ */
+type Approval = { value: string; source: string }
 
-type Hit = { file: string; area: string; rule: string }
+const approvals: Approval[] = []
+
+for (const v of (process.env.ALLOW_PROTECTED ?? '').trim().split(/[\s,]+/).filter(Boolean)) {
+  approvals.push({ value: v, source: 'ALLOW_PROTECTED' })
+}
+
+// %H<US>%B<RS> — 메시지에 줄바꿈이 있으므로 개행이 아닌 제어문자로 자른다
+for (const entry of git(['log', '--format=%H%x1f%B%x1e', `${base.commit}..HEAD`]).split('\x1e')) {
+  const [sha, body] = entry.split('\x1f')
+  if (!sha?.trim() || !body) continue
+  for (const m of body.matchAll(/^Approved-Protected:\s*(.+)$/gim)) {
+    for (const v of m[1].trim().split(/[\s,]+/).filter(Boolean)) {
+      approvals.push({ value: v, source: `커밋 ${sha.trim().slice(0, 7)}` })
+    }
+  }
+}
+
+/** 승인 하나가 이 파일을 덮는가 */
+const grants = (a: Approval, file: string, rule: string) =>
+  a.value.toLowerCase() === 'all' ||
+  a.value === file ||
+  a.value === rule ||
+  covers(a.value.endsWith('/') ? a.value : a.value + '/', file)
+
+type Hit = { file: string; area: string; rule: string; by?: string }
 const violations: Hit[] = []
 const approved: Hit[] = []
 
 for (const file of changed) {
   const rule = protectedPaths.find((p) => covers(p.path, file))
   if (!rule) continue
-  const hit = { file, area: rule.area, rule: rule.path }
-  const ok = allowAll || allowed.some((a) => a === file || covers(a.endsWith('/') ? a : a + '/', file) || a === rule.path)
-  ;(ok ? approved : violations).push(hit)
+  const by = approvals.find((a) => grants(a, file, rule.path))
+  const hit = { file, area: rule.area, rule: rule.path, by: by?.source }
+  ;(by ? approved : violations).push(hit)
 }
 
 // ─── 출력 ────────────────────────────────────────────────────────────────────
@@ -188,8 +221,8 @@ const undecided = protectedAreas.filter((a) => a.unresolved.length > 0)
 for (const a of undecided) console.log(`      ${a.name} — 경로 미정 ("${a.unresolved[0]}") · 검사 제외`)
 console.log()
 
-for (const h of approved) console.log(`⚠️  승인됨  ${h.file}   ${h.area} (${h.rule})`)
-if (approved.length > 0) console.log(`      ALLOW_PROTECTED — 사람이 명시적으로 승인한 변경으로 본다 (§5)\n`)
+for (const h of approved) console.log(`⚠️  승인됨  ${h.file}   ${h.area} (${h.rule})   ← ${h.by}`)
+if (approved.length > 0) console.log(`      사람이 명시적으로 승인한 변경으로 본다 (§5)\n`)
 
 if (violations.length > 0) {
   console.log(`❌ 보호 경로 변경 ${violations.length}건 — 사람 승인이 필요합니다\n`)
@@ -200,8 +233,10 @@ if (violations.length > 0) {
       `이 영역의 변경 권한은 사람에게 있다 (${SSOT} §5).`,
       'AI 는 변경안과 이유를 제시하고 승인을 기다린다.',
       '',
-      '승인된 변경이라면 경로를 적어 다시 실행한다.',
+      '승인된 변경이라면 경로를 적는다. 로컬만 통과시키려면 환경변수로,',
+      'CI 까지 통과시키려면 커밋 트레일러로 남긴다.',
       `  ALLOW_PROTECTED="${violations.map((v) => v.file).join(' ')}" npm run verify`,
+      `  git commit --allow-empty -m "chore: 보호 경로 변경 승인" -m "Approved-Protected: ${violations.map((v) => v.file).join(' ')}"`,
       '',
     ].join('\n')
   )
