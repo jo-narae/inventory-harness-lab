@@ -1,7 +1,7 @@
 import { db } from './db'
 import { addDays, dateOnly, daysUntil, today } from './date'
 import { expiryStatus, type ExpiryStatus } from './expiry'
-import { AVAILABLE_LOCATION_TYPES, LOCATION_TYPES, TRANSIT_DELAY_DAYS } from './constants'
+import { AVAILABLE_LOCATION_TYPES, LOCATION_TYPES, MOVEMENT_TYPES, TRANSIT_DELAY_DAYS } from './constants'
 
 /** 재고 목록 한 줄에 필요한 것 (05-design 4.4) */
 export type StockRowData = {
@@ -331,6 +331,95 @@ export async function getFulfillmentSheet(locationId: number) {
 
   const rows = [...byProduct.values()].sort(
     (a, b) => Number(b.recent) - Number(a.recent) || a.name.localeCompare(b.name, 'ko')
+  )
+  return { location, rows }
+}
+
+// ───────────────────────── 재고 조정 (실사, F8) 조회
+
+export type AdjustLocationCard = {
+  id: number
+  name: string
+  type: string
+  lotCount: number
+  total: number
+  lastAdjustedAt: Date | null
+}
+
+/**
+ * 실사할 거점 목록.
+ * 실물을 셀 수 있는 곳만 나열한다 — 배송 중·폐기는 가상 거점이다 (06 §3).
+ */
+export async function getAdjustLocations(): Promise<AdjustLocationCard[]> {
+  const locations = await db.location.findMany({
+    where: { isActive: true, type: { in: [...AVAILABLE_LOCATION_TYPES] } },
+    include: { lots: { where: { quantity: { gt: 0 } } } },
+    orderBy: { id: 'asc' },
+  })
+
+  const lastAdjusts = await db.movement.groupBy({
+    by: ['fromLocationId', 'toLocationId'],
+    where: { type: MOVEMENT_TYPES.ADJUST },
+    _max: { createdAt: true },
+  })
+
+  const lastOf = new Map<number, Date>()
+  for (const row of lastAdjusts) {
+    const locationId = row.fromLocationId ?? row.toLocationId
+    const at = row._max.createdAt
+    if (locationId == null || !at) continue
+    const prev = lastOf.get(locationId)
+    if (!prev || prev < at) lastOf.set(locationId, at)
+  }
+
+  return locations.map((l) => ({
+    id: l.id,
+    name: l.name,
+    type: l.type,
+    lotCount: l.lots.length,
+    total: l.lots.reduce((s, lot) => s + lot.quantity, 0),
+    lastAdjustedAt: lastOf.get(l.id) ?? null,
+  }))
+}
+
+export type AdjustRow = {
+  lotId: number
+  productId: number
+  sku: string
+  name: string
+  unit: string
+  expiry: string // ISO
+  bookQty: number // 장부 수량
+  status: ExpiryStatus
+}
+
+/**
+ * 실사 시트 — 상품을 하나씩 검색하게 만들지 않는다 (S5와 같은 이유).
+ * 이 거점에 남아 있는 로트를 나열하고 실물 수량 칸만 채우게 한다.
+ */
+export async function getAdjustSheet(locationId: number) {
+  const location = await db.location.findUnique({ where: { id: locationId } })
+  if (!location) return null
+
+  const lots = await db.lot.findMany({
+    where: { locationId, quantity: { gt: 0 } },
+    include: { product: true },
+    orderBy: [{ expiryDate: 'asc' }, { id: 'asc' }],
+  })
+
+  const rows: AdjustRow[] = lots.map((lot) => ({
+    lotId: lot.id,
+    productId: lot.productId,
+    sku: lot.product.sku,
+    name: lot.product.name,
+    unit: lot.product.unit,
+    expiry: lot.expiryDate.toISOString(),
+    bookQty: lot.quantity,
+    status: expiryStatus(lot.expiryDate, lot.product.expiryAlertDays ?? undefined),
+  }))
+
+  rows.sort(
+    (a, b) => a.name.localeCompare(b.name, 'ko') || a.expiry.localeCompare(b.expiry)
   )
   return { location, rows }
 }
