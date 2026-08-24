@@ -9,10 +9,8 @@
  * 경로 목록을 여기에 적지 않는다 — SSOT 를 읽어 매번 다시 만든다.
  * 두 벌이 되는 순간 어느 쪽이 맞는지 알 수 없어지기 때문이다.
  *
- * 승인 (§5 "사람의 명시적인 수정 요청은 해당 변경에 대한 승인으로 본다"):
- *   ALLOW_PROTECTED="docs/harness/00-ssot.md" npm run verify
- *   ALLOW_PROTECTED=all npm run verify
- * CI 워크플로에는 넣지 않는다. CI 는 항상 엄격하게 막는다.
+ * 승인도 마찬가지다. 무엇이 유효한 승인인지는 §5 "승인 기록" 이 정한다.
+ * 방법과 형식을 여기에 옮겨 적지 않는다 — 아래 코드는 그렇게 정해진 승인을 읽을 뿐이다.
  *
  * DB 도 빌드도 필요 없다. git 과 파일만 읽으므로 파이프라인 맨 앞에 둔다.
  */
@@ -163,15 +161,8 @@ const covers = (rule: string, file: string) =>
   rule.endsWith('/') ? file.startsWith(rule) : file === rule || file.startsWith(rule + '/')
 
 /**
- * 승인은 두 곳에서 온다. 둘 다 사람이 직접 적은 것이고, 규칙은 같다.
- *
- *   1. 환경변수 ALLOW_PROTECTED — 손에 잡히는 로컬용. 이력에 남지 않는다.
- *   2. 커밋 트레일러 Approved-Protected — base..HEAD 커밋 메시지에서 읽는다.
- *      승인이 커밋에 박히므로 로컬과 CI 가 같은 근거를 본다. 리뷰에서도 보인다.
- *
- *      Approved-Protected: docs/harness/00-ssot.md scripts/verify/check-protected.ts
- *
- * 승인 값은 파일 경로, 디렉터리, SSOT 에 적힌 경로 규칙, 또는 all 이다.
+ * SSOT §5 "승인 기록" 이 정한 두 곳에서 승인을 모은다 — 환경변수와 커밋 트레일러.
+ * 어느 쪽이 어디까지 유효한지는 SSOT 의 표가 정한다. 여기서는 읽어 모으기만 한다.
  */
 type Approval = { value: string; source: string }
 
