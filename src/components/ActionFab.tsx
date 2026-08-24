@@ -10,6 +10,7 @@ const ACTIONS = [
   { href: '/transfers/new', icon: '🚚', label: '풀필먼트 발송' },
   { href: '/fulfillment', icon: '📝', label: '풀필먼트 일일 반영' },
   { href: '/popups', icon: '🎪', label: '팝업 반출 · 정산' },
+  { href: '/adjust', icon: '🔢', label: '재고 조정 (실사)' },
 ]
 
 export function ActionFab() {
