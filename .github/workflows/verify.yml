@@ -41,3 +41,13 @@ jobs:
           # 실제 비밀값이 아니다. .env.example 이 요구하는 변수를 CI 에서도 채워둘 뿐이다.
           # 검증 경로는 로그인을 거치지 않으므로 값 자체는 쓰이지 않는다.
           SESSION_SECRET: ci-placeholder-not-a-real-secret
+
+          # ── 한시적 승인 (docs/harness-ssot 브랜치 전용) ───────────────────
+          # 이 브랜치가 보호 경로 검사 자체를 만드는 작업이라, 검사가 자기 자신을 막는다.
+          # 아래 두 파일의 변경은 사람이 명시적으로 승인했다 (00-ssot.md §5).
+          # 브랜치 이름이 일치할 때만 값이 채워지므로 다른 브랜치·main 에서는 빈 값이다.
+          # main 병합 후 이 블록을 지운다 — 남겨두면 승인의 흔적이 아니라 구멍이 된다.
+          ALLOW_PROTECTED: >-
+            ${{ (github.head_ref || github.ref_name) == 'docs/harness-ssot'
+            && 'docs/harness/00-ssot.md scripts/verify/check-protected.ts'
+            || '' }}
