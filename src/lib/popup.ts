@@ -1,7 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client'
 import { db } from './db'
 import { applyMovement, reverseMovement } from './stock'
-import { MOVEMENT_TYPES, POPUP_STATUS, REASON_CODES } from './constants'
+import { LOCATION_TYPES, MOVEMENT_TYPES, POPUP_STATUS, REASON_CODES } from './constants'
 import { dateOnly } from './date'
 
 /**
@@ -176,6 +176,87 @@ export function popupReport(
     // 다음 팝업에 그만 가져가기 위한 정보다
     idle: rows.filter((r) => r.rate <= 0.2),
   }
+}
+
+// ───────────────────────── 반출서 작성 (S6)
+
+export class PopupPlanExceedsStockError extends Error {
+  constructor(
+    readonly detail: { productId: number; productName: string; locationId: number; want: number; have: number }
+  ) {
+    super(
+      `${detail.productName} 자사창고 보유 수량은 ${detail.have}개입니다. ` +
+        `입력한 ${detail.want}개는 보유 수량을 ${detail.want - detail.have}개 초과합니다`
+    )
+    this.name = 'PopupPlanExceedsStockError'
+  }
+}
+
+export type CreatePopupInput = {
+  name: string
+  startDate: Date
+  endDate: Date
+  sourceLocationId: number
+  planLines: { productId: number; plannedQty: number }[]
+}
+
+/**
+ * 팝업 만들기 + 반출서 저장 — 액션과 테스트가 같은 함수를 쓴다.
+ *
+ * 반출서는 계획일 뿐이라 이 단계에서 재고는 움직이지 않지만(F7), 자사창고가
+ * 실제로 내줄 수 없는 계획까지 저장하면 안 된다. 그래서 반출 예정 수량을
+ * 자사창고 보유 수량과 비교해 초과분이 있으면 반출서 자체를 만들지 않는다.
+ * 다른 거점(풀필먼트·팝업 등) 재고는 자사창고에서 반출 가능한 양이 아니므로 합산하지 않는다.
+ */
+export async function createPopupTx(tx: Prisma.TransactionClient, input: CreatePopupInput) {
+  const lines = input.planLines.filter((l) => l.plannedQty > 0)
+
+  if (lines.length > 0) {
+    const productIds = [...new Set(lines.map((l) => l.productId))]
+    const [stockByProduct, products] = await Promise.all([
+      tx.lot.groupBy({
+        by: ['productId'],
+        where: { locationId: input.sourceLocationId, productId: { in: productIds }, quantity: { gt: 0 } },
+        _sum: { quantity: true },
+      }),
+      tx.product.findMany({ where: { id: { in: productIds } } }),
+    ])
+    const haveOf = new Map(stockByProduct.map((s) => [s.productId, s._sum.quantity ?? 0]))
+    const productOf = new Map(products.map((p) => [p.id, p]))
+
+    for (const line of lines) {
+      const have = haveOf.get(line.productId) ?? 0
+      if (line.plannedQty > have) {
+        throw new PopupPlanExceedsStockError({
+          productId: line.productId,
+          productName: productOf.get(line.productId)?.name ?? `상품 ${line.productId}`,
+          locationId: input.sourceLocationId,
+          want: line.plannedQty,
+          have,
+        })
+      }
+    }
+  }
+
+  const location = await tx.location.create({
+    data: { name: input.name, type: LOCATION_TYPES.POPUP },
+  })
+  const popup = await tx.popup.create({
+    data: {
+      name: input.name,
+      status: POPUP_STATUS.PREP,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      locationId: location.id,
+      sourceLocationId: input.sourceLocationId,
+    },
+  })
+  for (const line of lines) {
+    await tx.popupPlan.create({
+      data: { popupId: popup.id, productId: line.productId, plannedQty: line.plannedQty },
+    })
+  }
+  return popup
 }
 
 // ───────────────────────── 정산 (도메인 핵심)

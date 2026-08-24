@@ -5,8 +5,8 @@ import { db } from '@/lib/db'
 import { requireUser, SessionExpiredError } from '@/lib/auth'
 import { applyMovement, InsufficientStockError } from '@/lib/stock'
 import { ALLOCATION, allocateLots } from '@/lib/fefo'
-import { settlePopupTx, unsettlePopupTx } from '@/lib/popup'
-import { LOCATION_TYPES, MOVEMENT_TYPES, POPUP_STATUS } from '@/lib/constants'
+import { createPopupTx, PopupPlanExceedsStockError, settlePopupTx, unsettlePopupTx } from '@/lib/popup'
+import { MOVEMENT_TYPES, POPUP_STATUS } from '@/lib/constants'
 import { dateOnly } from '@/lib/date'
 import type { SaveResult } from './inbound'
 
@@ -42,27 +42,22 @@ export async function createPopup(input: {
     return { ok: false, error: '기간을 확인하세요' }
   if (end < start) return { ok: false, error: '종료일이 시작일보다 빠릅니다' }
 
-  const popupId = await db.$transaction(async (tx) => {
-    const location = await tx.location.create({
-      data: { name: input.name.trim(), type: LOCATION_TYPES.POPUP },
-    })
-    const popup = await tx.popup.create({
-      data: {
+  let popupId: number
+  try {
+    popupId = await db.$transaction(async (tx) => {
+      const popup = await createPopupTx(tx, {
         name: input.name.trim(),
-        status: POPUP_STATUS.PREP,
         startDate: start,
         endDate: end,
-        locationId: location.id,
         sourceLocationId: input.sourceLocationId,
-      },
-    })
-    for (const line of input.planLines.filter((l) => l.plannedQty > 0)) {
-      await tx.popupPlan.create({
-        data: { popupId: popup.id, productId: line.productId, plannedQty: line.plannedQty },
+        planLines: input.planLines,
       })
-    }
-    return popup.id
-  })
+      return popup.id
+    })
+  } catch (e) {
+    if (e instanceof PopupPlanExceedsStockError) return { ok: false, error: e.message }
+    return { ok: false, error: e instanceof Error ? e.message : '반출서 생성에 실패했습니다' }
+  }
 
   revalidatePath('/popups')
   return { ok: true, message: `${input.name} 반출서를 만들었습니다`, popupId }
