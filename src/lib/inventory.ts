@@ -395,14 +395,18 @@ export type AdjustRow = {
 
 /**
  * 실사 시트 — 상품을 하나씩 검색하게 만들지 않는다 (S5와 같은 이유).
- * 이 거점에 남아 있는 로트를 나열하고 실물 수량 칸만 채우게 한다.
+ * 이 거점의 로트를 나열하고 실물 수량 칸만 채우게 한다.
+ *
+ * **장부 잔량이 0인 로트도 올린다.** 실사는 실물을 세는 일이므로 (F8), 셀 수 있는 로트를
+ * 장부 잔량으로 미리 걸러내면 "장부는 0인데 실물이 나왔다"를 입력할 자리가 사라진다.
+ * 서버는 이미 그 경우를 받는다 — `applyAdjustmentTx()` 의 `bookQty = lot?.quantity ?? 0`.
  */
 export async function getAdjustSheet(locationId: number) {
   const location = await db.location.findUnique({ where: { id: locationId } })
   if (!location) return null
 
   const lots = await db.lot.findMany({
-    where: { locationId, quantity: { gt: 0 } },
+    where: { locationId },
     include: { product: true },
     orderBy: [{ expiryDate: 'asc' }, { id: 'asc' }],
   })

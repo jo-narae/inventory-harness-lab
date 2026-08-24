@@ -48,6 +48,11 @@ export function AdjustSheet({
     [rows, values]
   )
 
+  // 장부 0 로트도 실사 대상이다 (F8). 다만 잔량이 남은 줄과 섞으면 매번 채워야 할 칸으로
+  // 보이므로 아래에 따로 모은다 — "실물이 나왔을 때만" 손이 가는 자리다
+  const stocked = computed.filter((c) => c.row.bookQty > 0)
+  const depleted = computed.filter((c) => c.row.bookQty === 0)
+
   const counted = computed.filter((c) => c.counted !== null)
   const invalid = counted.filter((c) => !c.valid)
   const changed = computed.filter((c) => c.valid && c.diff !== 0)
@@ -77,13 +82,70 @@ export function AdjustSheet({
     router.refresh()
   }
 
+  const renderRow = (c: (typeof computed)[number]) => {
+    const filled = c.counted !== null
+    const tone = !c.valid && filled ? 'error' : c.diff !== 0 ? 'filled' : 'idle'
+    const expiry = new Date(c.row.expiry)
+    const sub = [
+      formatDate(expiry),
+      c.row.status === 'OK' ? null : EXPIRY_LABEL[c.row.status],
+      c.row.sku,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    return (
+      <BulkInputRow
+        key={c.row.lotId}
+        name={c.row.name}
+        sub={sub}
+        unit={c.row.unit}
+        ariaLabel={`${c.row.name} ${formatDate(expiry)} 실물 수량`}
+        value={values[c.row.lotId] ?? ''}
+        onChange={(v) => setValues((p) => ({ ...p, [c.row.lotId]: v }))}
+        onEnter={submit}
+        tone={tone}
+        info={
+          filled && c.valid ? (
+            <>
+              {c.row.bookQty.toLocaleString()} <span className="text-[#c9c4d6]">→</span>{' '}
+              <b className={c.diff === 0 ? 'text-sub' : 'text-acc'}>
+                {c.counted!.toLocaleString()}
+              </b>
+            </>
+          ) : (
+            <>장부 {c.row.bookQty.toLocaleString()}</>
+          )
+        }
+        result={
+          filled && !c.valid ? (
+            <b className="text-red">0 이상의 정수로 입력하세요</b>
+          ) : filled && c.diff !== 0 ? (
+            <b className={c.diff > 0 ? 'text-ok' : 'text-red'}>
+              차이 {c.diff > 0 ? '+' : '−'}
+              {Math.abs(c.diff).toLocaleString()}
+              {c.row.unit} ({c.diff > 0 ? '장부보다 많음' : '장부보다 적음'})
+            </b>
+          ) : filled ? (
+            <span className="text-sub">차이 없음</span>
+          ) : (
+            <span className="hidden text-[#c9c4d6] lg:inline">—</span>
+          )
+        }
+      />
+    )
+  }
+
   return (
     <main className="pb-32">
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
         <Link href="/adjust" className="text-[14.5px] font-extrabold">
           ‹ {location.name} 재고 조정
         </Link>
-        <span className="text-[11px] text-sub">{rows.length}개 로트</span>
+        <span className="text-[11px] text-sub tnum">
+          {stocked.length}개 로트
+          {depleted.length > 0 && ` · 장부 0 ${depleted.length}개`}
+        </span>
       </header>
 
       <p className="border-b border-line bg-dim px-4 py-2.5 text-[11.5px] leading-relaxed text-[#5b5570]">
@@ -129,61 +191,21 @@ export function AdjustSheet({
       </div>
 
       {rows.length === 0 ? (
-        <p className="px-4 py-14 text-center text-[13px] text-sub">이 거점에 남은 재고가 없습니다</p>
+        <p className="px-4 py-14 text-center text-[13px] text-sub">이 거점에 실사할 로트가 없습니다</p>
       ) : (
-        computed.map((c) => {
-          const filled = c.counted !== null
-          const tone = !c.valid && filled ? 'error' : c.diff !== 0 ? 'filled' : 'idle'
-          const expiry = new Date(c.row.expiry)
-          const sub = [
-            formatDate(expiry),
-            c.row.status === 'OK' ? null : EXPIRY_LABEL[c.row.status],
-            c.row.sku,
-          ]
-            .filter(Boolean)
-            .join(' · ')
+        <>
+          {stocked.map(renderRow)}
 
-          return (
-            <BulkInputRow
-              key={c.row.lotId}
-              name={c.row.name}
-              sub={sub}
-              unit={c.row.unit}
-              ariaLabel={`${c.row.name} ${formatDate(expiry)} 실물 수량`}
-              value={values[c.row.lotId] ?? ''}
-              onChange={(v) => setValues((p) => ({ ...p, [c.row.lotId]: v }))}
-              onEnter={submit}
-              tone={tone}
-              info={
-                filled && c.valid ? (
-                  <>
-                    {c.row.bookQty.toLocaleString()} <span className="text-[#c9c4d6]">→</span>{' '}
-                    <b className={c.diff === 0 ? 'text-sub' : 'text-acc'}>
-                      {c.counted!.toLocaleString()}
-                    </b>
-                  </>
-                ) : (
-                  <>장부 {c.row.bookQty.toLocaleString()}</>
-                )
-              }
-              result={
-                filled && !c.valid ? (
-                  <b className="text-red">0 이상의 정수로 입력하세요</b>
-                ) : filled && c.diff !== 0 ? (
-                  <b className={c.diff > 0 ? 'text-ok' : 'text-red'}>
-                    차이 {c.diff > 0 ? '+' : '−'}
-                    {Math.abs(c.diff).toLocaleString()}
-                    {c.row.unit} ({c.diff > 0 ? '장부보다 많음' : '장부보다 적음'})
-                  </b>
-                ) : filled ? (
-                  <span className="text-sub">차이 없음</span>
-                ) : (
-                  <span className="hidden text-[#c9c4d6] lg:inline">—</span>
-                )
-              }
-            />
-          )
-        })
+          {depleted.length > 0 && (
+            <>
+              <div className="border-b border-line bg-dim px-4 py-2.5 text-[10.5px] leading-relaxed text-sub">
+                <b className="text-[#5b5570]">장부 0 · {depleted.length}개 로트</b> — 소진된
+                로트입니다. 창고에서 실물이 나온 것만 수량을 적고, 나머지는 비워 둡니다.
+              </div>
+              {depleted.map(renderRow)}
+            </>
+          )}
+        </>
       )}
 
       {error && (
