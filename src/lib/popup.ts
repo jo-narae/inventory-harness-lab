@@ -1,7 +1,13 @@
 import type { Prisma } from '@/generated/prisma/client'
 import { db } from './db'
 import { applyMovement, reverseMovement } from './stock'
-import { LOCATION_TYPES, MOVEMENT_TYPES, POPUP_STATUS, REASON_CODES } from './constants'
+import {
+  LOCATION_TYPES,
+  MOVEMENT_TYPES,
+  POPUP_STATUS,
+  REASON_CODES,
+  type PopupStatus,
+} from './constants'
 import { dateOnly } from './date'
 
 /**
@@ -43,6 +49,28 @@ export function tallyPopup(movements: MovementLike[], popupLocationId: number): 
     sample: sum((m) => m.fromLocationId === popupLocationId && m.reason === REASON_CODES.SAMPLE),
     returned: sum((m) => m.type === MOVEMENT_TYPES.POPUP_IN),
   }
+}
+
+/**
+ * 화면에 보일 팝업 상태.
+ *
+ * 저장된 `status` 는 업무 진행 단계라서 행사 기간과 따로 움직인다. 행사가 끝나도
+ * 정산하기 전까지는 `ACTIVE` 로 남아 있고, 그래서 목록이 이미 끝난 팝업을 계속
+ * `진행 중` 으로 보였다. 지금 운영 중인 팝업과 구분이 되지 않는다.
+ *
+ * 그래서 **표시할 때만** 행사 기간을 한 번 더 본다. 저장값은 그대로 두므로 정산
+ * 진입 같은 업무 분기는 영향을 받지 않는다.
+ *
+ * 종료일은 그날까지 행사한다는 뜻이므로 포함이다 — 시각이 아니라 날짜로 비교한다.
+ * 행사 기간 중이거나 `ACTIVE` 가 아닌 팝업(준비·정산 중·정산 확정)은 저장값 그대로다.
+ */
+export function popupDisplayStatus(
+  popup: { status: string; endDate: Date },
+  now: Date = new Date()
+): PopupStatus {
+  const ended = dateOnly(now).getTime() > dateOnly(popup.endDate).getTime()
+  if (popup.status === POPUP_STATUS.ACTIVE && ended) return POPUP_STATUS.CLOSED
+  return popup.status as PopupStatus
 }
 
 // ───────────────────────── 조회

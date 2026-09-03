@@ -4,7 +4,7 @@ import { Badge } from '@/components/StatusBadge'
 import { PopupShipOut, type ShipRow } from '@/components/PopupShipOut'
 import { PopupReport } from '@/components/PopupReport'
 import { UnsettleButton } from '@/components/UnsettleButton'
-import { getPopupDetail, popupPeriod, popupReport } from '@/lib/popup'
+import { getPopupDetail, popupDisplayStatus, popupPeriod, popupReport } from '@/lib/popup'
 import { POPUP_STATUS, POPUP_STATUS_LABEL, type PopupStatus } from '@/lib/constants'
 import { formatDate } from '@/lib/date'
 
@@ -18,6 +18,9 @@ export default async function PopupDetailPage({ params }: { params: Promise<{ id
   const { popup, totals, byProduct, popupLots, sourceLots, products } = detail
   const status = popup.status as PopupStatus
   const closed = status === POPUP_STATUS.CLOSED
+  // 뱃지에만 쓰는 표시 상태 — 행사 기간이 지났으면 종료로 보인다 (Issue #19).
+  // 정산 진입 같은 업무 분기는 저장된 status 그대로 판단한다
+  const display = popupDisplayStatus(popup)
   const onHand = popupLots.reduce((s, l) => s + l.quantity, 0)
 
   const header = (
@@ -26,8 +29,12 @@ export default async function PopupDetailPage({ params }: { params: Promise<{ id
         <Link href="/popups" className="text-[14.5px] font-extrabold">
           ‹ {popup.name}
         </Link>
-        <Badge tone={closed ? 'gray' : status === POPUP_STATUS.PREP ? 'amber' : 'acc'}>
-          {POPUP_STATUS_LABEL[status]}
+        <Badge
+          tone={
+            display === POPUP_STATUS.CLOSED ? 'gray' : display === POPUP_STATUS.PREP ? 'amber' : 'acc'
+          }
+        >
+          {POPUP_STATUS_LABEL[display]}
         </Badge>
       </header>
       <p className="border-b border-line bg-dim px-4 py-2.5 text-[11.5px] text-[#5b5570] tnum">

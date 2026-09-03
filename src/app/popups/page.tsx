@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Badge } from '@/components/StatusBadge'
-import { getPopupList, popupPeriod } from '@/lib/popup'
+import { getPopupList, popupDisplayStatus, popupPeriod } from '@/lib/popup'
 import { POPUP_STATUS, POPUP_STATUS_LABEL, type PopupStatus } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
@@ -37,7 +37,10 @@ export default async function PopupsPage() {
         <p className="px-4 py-12 text-center text-[13px] text-sub">진행 중인 팝업이 없습니다</p>
       )}
 
-      {running.map((p) => (
+      {running.map((p) => {
+        // 저장된 상태가 아니라 행사 기간까지 본 표시 상태다 (Issue #19)
+        const display = popupDisplayStatus(p)
+        return (
         <Link key={p.id} href={`/popups/${p.id}`} className="block border-b border-line px-4 py-3.5">
           <div className="flex items-center justify-between">
             <div>
@@ -48,19 +51,20 @@ export default async function PopupsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Badge tone={TONE[p.status as PopupStatus]}>
-                {POPUP_STATUS_LABEL[p.status as PopupStatus]}
-              </Badge>
+              <Badge tone={TONE[display]}>{POPUP_STATUS_LABEL[display]}</Badge>
               <span className="text-sub">›</span>
             </div>
           </div>
           <p className="mt-1.5 text-[10.5px] text-[#a9a3b8]">
             {p.status === POPUP_STATUS.PREP
               ? '반출서만 작성된 상태입니다. 아직 재고는 움직이지 않았습니다'
-              : '행사 중 · 추가 반출과 정산을 여기서 합니다'}
+              : display === POPUP_STATUS.CLOSED
+                ? '행사 기간이 끝났습니다 · 정산을 여기서 합니다'
+                : '행사 중 · 추가 반출과 정산을 여기서 합니다'}
           </p>
         </Link>
-      ))}
+        )
+      })}
 
       {closed.length > 0 && (
         <>
